@@ -1,41 +1,30 @@
 const express = require('express');
 const { createProxyMiddleware } = require('http-proxy-middleware');
+const cors = require('cors');
 
 const app = express();
 
-// 1. Ручное решение проблем с CORS (чтобы браузер пропускал запросы)
-app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS,PATCH');
-    res.header('Access-Control-Allow-Headers', '*'); // Разрешаем любые заголовки
+// Разрешаем CORS для твоего GitHub Pages
+app.use(cors());
 
-    if (req.method === 'OPTIONS') {
-        return res.sendStatus(200);
-    }
-    next();
-});
+// Твой проект Supabase
+const SUPABASE_URL = "https://dxoyyflsqrzgzjfihgcx.supabase.co";
 
-const SUPABASE_URL = 'https://dxoyyflsqrzgzjfihgcx.supabase.co';
-
-// 2. Настройка прокси
-const proxy = createProxyMiddleware({
+app.use('/', createProxyMiddleware({
   target: SUPABASE_URL,
-  changeOrigin: true, // Подменяет Origin на Supabase 
-  ws: true,           // ВАЖНО: Разрешает WebSocket (Именно это дает МОМЕНТАЛЬНЫЕ сообщения)
-  on: {
-    proxyRes: (proxyRes, req, res) => {
-        // Убеждаемся, что ответы от самого Supabase тоже не блокируются браузером
-        proxyRes.headers['access-control-allow-origin'] = '*';
-    }
+  changeOrigin: true, // Подменяем хост для обхода защиты
+  ws: true,           // ВАЖНО: Включает проксирование WebSockets (моментальные сообщения)
+  onProxyReq: (proxyReq, req, res) => {
+    // Удаляем заголовки, чтобы ограничения Supabase не сработали
+    proxyReq.removeHeader('origin');
+    proxyReq.removeHeader('referer');
+  },
+  onProxyReqWs: (proxyReq, req, socket, options, head) => {
+    proxyReq.removeHeader('origin');
   }
+}));
+
+const PORT = process.env.PORT || 10000;
+app.server = app.listen(PORT, () => {
+  console.log(`Node.js Proxy is running on port ${PORT}`);
 });
-
-app.use('/', proxy);
-
-const PORT = process.env.PORT || 3000;
-const server = app.listen(PORT, () => {
-    console.log(`Proxy listening on port ${PORT}`);
-});
-
-// 3. Жесткая привязка WebSockets (для чата) к серверу
-server.on('upgrade', proxy.upgrade);
