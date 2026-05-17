@@ -1,49 +1,50 @@
 const express = require('express');
-const { createProxyMiddleware } = require('http-proxy-middleware');
 const cors = require('cors');
+const { createProxyMiddleware } = require('http-proxy-middleware');
+require('dotenv').config();
 
 const app = express();
-const PORT = process.env.PORT || 10000;
+
 const SUPABASE_URL = process.env.SUPABASE_URL;
 
 if (!SUPABASE_URL) {
-  console.error("Ошибка: Не задана переменная окружения SUPABASE_URL в настройках Render");
-  process.exit(1);
+    console.error('Ошибка: Не задана переменная окружения SUPABASE_URL в настройках Render');
+    process.exit(1);
 }
 
-// 1. Настраиваем CORS и разрешаем ВСЕ заголовки, чтобы не было никаких блокировок
+// Настройка CORS для разрешения ВСЕХ необходимых заголовков Supabase
 app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: [
-    'Origin',
-    'X-Requested-With',
-    'Content-Type',
-    'Accept',
-    'Authorization',
-    'apikey',
-    'Prefer',
-    'x-client-info',
-    'content-profile',
-    'x-supabase-api-version', // Исправляет ошибку с твоего последнего скрина!
-    'x-retry-count'
-  ]
+    origin: '*',
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: [
+        'apikey',
+        'X-Client-Info',
+        'Content-Type',
+        'Authorization',
+        'Accept',
+        'Accept-Language',
+        'X-Supabase-Api-Version',
+        'Content-Profile',
+        'accept-profile',
+        'Prefer'
+    ]
 }));
 
-// 2. Настраиваем сам прокси
-const proxyMiddleware = createProxyMiddleware({
-  target: SUPABASE_URL,
-  changeOrigin: true,
-  ws: true, // Включаем поддержку WebSockets (КРИТИЧЕСКИ ВАЖНО для мгновенных сообщений!)
-  logLevel: 'error',
+// Настройка проксирования запросов к Supabase
+app.use('/', createProxyMiddleware({
+    target: SUPABASE_URL,
+    changeOrigin: true,
+    ws: true, // Включаем поддержку WebSocket (важно для моментальных сообщений и реакций!)
+    logLevel: 'debug',
+    onProxyReq: (proxyReq, req, res) => {
+        // Убираем Origin, чтобы Supabase не блокировал запросы
+        proxyReq.removeHeader('Origin');
+        // Добавляем X-Forwarded-Host для корректной работы auth
+        proxyReq.setHeader('X-Forwarded-Host', req.headers.host);
+    },
+}));
+
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => {
+    console.log(`Прокси-сервер запущен на порту ${PORT} и проксирует запросы на ${SUPABASE_URL}`);
 });
-
-app.use('/', proxyMiddleware);
-
-// 3. Запускаем сервер
-const server = app.listen(PORT, () => {
-  console.log(`Proxy is running on port ${PORT}`);
-});
-
-// 4. Проксируем обновления WebSocket, чтобы постоянные соединения не обрывались
-server.on('upgrade', proxyMiddleware.upgrade);
