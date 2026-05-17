@@ -1,12 +1,13 @@
 {
   "name": "supa-proxy",
   "version": "1.0.0",
-  "description": "Supabase Proxy on Render",
-  "main": "server.js",
+  "description": "Supabase Proxy on Node.js",
+  "main": "index.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node index.js"
   },
   "dependencies": {
-    "http-proxy": "^1.18.1"
+    "express": "^4.19.2",
+    "http-proxy-middleware": "^3.0.0"
   }
 }
