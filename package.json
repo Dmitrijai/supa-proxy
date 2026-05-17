@@ -6,6 +6,8 @@
     "start": "node index.js"
   },
   "dependencies": {
-    "http-proxy": "^1.18.1"
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "http-proxy-middleware": "^2.0.6"
   }
 }
