@@ -1,53 +1,52 @@
-const http = require('http');
-const httpProxy = require('http-proxy');
+const express = require('express');
+const { createProxyMiddleware } = require('http-proxy-middleware');
 
-// Ваш URL от Supabase (обязательно с https://)
-const SUPABASE_URL = "https://dxoyyflsqrzgzjfihgcx.supabase.co"; 
+const app = express();
+// Твой Supabase URL с https://
+const SUPABASE_URL = 'https://dxoyyflsqrzgzjfihgcx.supabase.co'; 
 
-// Создаем прокси-сервер с поддержкой WebSockets (ws: true)
-const proxy = httpProxy.createProxyServer({
-  target: SUPABASE_URL,
-  secure: true,
-  changeOrigin: true, // Крайне важно для подмены Host
-  ws: true,           // Включаем поддержку WebSockets!
+// 1. Эндпоинт для cron-job.org (чтобы сервер не засыпал на Render)
+app.get('/health', (req, res) => {
+  res.status(200).send('OK Proxy is awake');
 });
 
-// Перехватываем ответы прокси для добавления CORS заголовков
-proxy.on('proxyRes', function (proxyRes, req, res) {
-  proxyRes.headers['access-control-allow-origin'] = '*';
-  proxyRes.headers['access-control-allow-methods'] = 'GET, POST, PUT, PATCH, DELETE, OPTIONS';
-  proxyRes.headers['access-control-allow-headers'] = 'apikey, X-Client-Info, Content-Type, Authorization, Prefer, accept-profile, x-supabase-api-version';
-});
+// 2. Универсальная настройка CORS (динамически разрешает любые заголовки от Supabase)
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
 
-const server = http.createServer((req, res) => {
-  // Обработка предварительных OPTIONS запросов (браузерный CORS)
-  if (req.method === 'OPTIONS') {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'apikey, X-Client-Info, Content-Type, Authorization, Prefer, accept-profile, x-supabase-api-version');
-    res.setHeader('Access-Control-Max-Age', '86400');
-    res.writeHead(204);
-    res.end();
-    return;
+  // Если клиент запрашивает кастомные заголовки (например, content-profile), мы их разрешаем
+  if (req.headers['access-control-request-headers']) {
+    res.header("Access-Control-Allow-Headers", req.headers['access-control-request-headers']);
   }
 
-  // Проксируем обычные HTTP запросы (логин, получение сообщений и профилей)
-  proxy.web(req, res, { target: SUPABASE_URL }, (e) => {
-    res.writeHead(502);
-    res.end('Proxy error: ' + e.message);
-  });
+  // Быстрый ответ на предварительный запрос браузера (preflight)
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  
+  next();
 });
 
-// Важнейшая часть: проксирование WebSockets (для МОМЕНТАЛЬНЫХ сообщений!)
-server.on('upgrade', (req, socket, head) => {
-  proxy.ws(req, socket, head, { target: SUPABASE_URL }, (e) => {
-    socket.destroy();
-  });
+// 3. Настройка прокси
+const proxy = createProxyMiddleware({
+  target: SUPABASE_URL,
+  changeOrigin: true,
+  ws: true, // ВАЖНО: Включает проксирование WebSockets (для моментальных сообщений)
+  logLevel: 'warn',
+  onProxyRes: function (proxyRes, req, res) {
+     // Добавляем CORS к ответам самого Supabase
+     proxyRes.headers['access-control-allow-origin'] = '*';
+  }
 });
 
-// Render.com автоматически задает переменную окружения PORT, слушаем ее
-const PORT = process.env.PORT || 10000; 
+// Все запросы направляем в прокси
+app.use('/', proxy);
 
-server.listen(PORT, () => {
-  console.log(`Proxy server is running on port ${PORT}`);
+const PORT = process.env.PORT || 3000;
+const server = app.listen(PORT, () => {
+  console.log(`Proxy is running on port ${PORT}`);
 });
+
+// ВАЖНО: обрабатываем апгрейд до WebSockets для работы моментальных чатов!
+server.on('upgrade', proxy.upgrade);
