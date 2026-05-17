@@ -1,57 +1,49 @@
-const http = require('http');
-const httpProxy = require('http-proxy');
+const express = require('express');
+const { createProxyMiddleware } = require('http-proxy-middleware');
+const cors = require('cors');
 
-// 👇 Сюда вставлен твой настоящий URL от Supabase
-const targetUrl = process.env.TARGET_URL || 'https://dxoyyflsqrzgzjfihgcx.supabase.co';
+const app = express();
+const PORT = process.env.PORT || 10000;
+const SUPABASE_URL = process.env.SUPABASE_URL;
 
-console.log(`Starting proxy to ${targetUrl}`);
+if (!SUPABASE_URL) {
+  console.error("Ошибка: Не задана переменная окружения SUPABASE_URL в настройках Render");
+  process.exit(1);
+}
 
-// Опция ws: true КРИТИЧЕСКИ ВАЖНА для мгновенных сообщений (Realtime)
-const proxy = httpProxy.createProxyServer({
-  target: targetUrl,
+// 1. Настраиваем CORS и разрешаем ВСЕ заголовки, чтобы не было никаких блокировок
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: [
+    'Origin',
+    'X-Requested-With',
+    'Content-Type',
+    'Accept',
+    'Authorization',
+    'apikey',
+    'Prefer',
+    'x-client-info',
+    'content-profile',
+    'x-supabase-api-version', // Исправляет ошибку с твоего последнего скрина!
+    'x-retry-count'
+  ]
+}));
+
+// 2. Настраиваем сам прокси
+const proxyMiddleware = createProxyMiddleware({
+  target: SUPABASE_URL,
   changeOrigin: true,
-  ws: true, 
-  secure: true
+  ws: true, // Включаем поддержку WebSockets (КРИТИЧЕСКИ ВАЖНО для мгновенных сообщений!)
+  logLevel: 'error',
 });
 
-// Добавляем CORS заголовки ко всем ответам, чтобы браузер не ругался
-proxy.on('proxyRes', function (proxyRes, req, res) {
-  proxyRes.headers['Access-Control-Allow-Origin'] = '*';
-  proxyRes.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, PATCH, DELETE, OPTIONS';
-  proxyRes.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, apikey, x-client-info, Prefer, content-profile';
+app.use('/', proxyMiddleware);
+
+// 3. Запускаем сервер
+const server = app.listen(PORT, () => {
+  console.log(`Proxy is running on port ${PORT}`);
 });
 
-// Если Supabase возвращает ошибку, не даем нашему прокси "упасть"
-proxy.on('error', function (err, req, res) {
-  console.error('Proxy Error:', err);
-  if (res && res.writeHead) {
-    res.writeHead(500, { 'Content-Type': 'text/plain' });
-    res.end('Proxy Error');
-  }
-});
-
-const server = http.createServer((req, res) => {
-  // Браузер перед сложными запросами отправляет предварительный запрос OPTIONS. Отвечаем, что все разрешено
-  if (req.method === 'OPTIONS') {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, apikey, x-client-info, Prefer, content-profile');
-    res.writeHead(204);
-    res.end();
-    return;
-  }
-
-  // Обычные HTTP запросы (войти, загрузить список чатов и тд)
-  proxy.web(req, res);
-});
-
-// === САМАЯ ВАЖНАЯ ЧАСТЬ ДЛЯ МГНОВЕННЫХ СООБЩЕНИЙ ===
-// Node.js "перехватывает" апгрейд соединения до WebSocket и перенаправляет в Supabase
-server.on('upgrade', (req, socket, head) => {
-  proxy.ws(req, socket, head);
-});
-
-const port = process.env.PORT || 10000;
-server.listen(port, () => {
-  console.log(`Proxy listening on port ${port} with WebSockets enabled`);
-});
+// 4. Проксируем обновления WebSocket, чтобы постоянные соединения не обрывались
+server.on('upgrade', proxyMiddleware.upgrade);
