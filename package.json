@@ -1,15 +1,11 @@
 {
   "name": "supa-proxy",
   "version": "1.0.0",
-  "description": "Proxy for Supabase",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "cors": "^2.8.5",
-    "express": "^4.19.2",
-    "http-proxy-middleware": "^3.0.0",
-    "ws": "^8.17.0"
+    "http-proxy": "^1.18.1"
   }
 }
